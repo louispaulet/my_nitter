@@ -178,7 +178,7 @@ The deployment should:
 6. Configure minimum instances `0`, maximum instances `1`, request-based billing/CPU throttling, and modest concurrency.
 7. Keep Cloud Run authenticated unless public access was explicitly requested later.
 
-Cloud Run Compose currently gives each Compose secret the default `/run/secrets` mount directory. Mounting both secrets there is rejected by Cloud Run, so `compose.cloudrun.yaml` uses the session secret only for the initial Compose revision. `deploy.sh` then replaces that transient mount with two stable Secret Manager mounts at `/run/secrets/sessions/nitter_sessions` and `/run/secrets/hmac/nitter_hmac`, disables the temporary bootstrap HMAC, and removes the transient Compose-created session secret.
+Cloud Run Compose currently gives each Compose secret the default `/run/secrets` mount directory. Mounting both secrets there is rejected by Cloud Run, so `compose.cloudrun.yaml` uses the session secret only for the initial Compose revision. `deploy.sh` then replaces that transient mount with two stable Secret Manager mounts at `/run/secrets/sessions/nitter_sessions` and `/run/secrets/hmac/nitter_hmac`, disables the temporary bootstrap HMAC, and removes transient Compose-created secrets.
 
 The script should print only non-sensitive metadata such as service, region, URL, pinned reference, access mode, and scaling settings. It must explicitly confirm that the X password and TOTP seed were not uploaded.
 

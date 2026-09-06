@@ -50,6 +50,7 @@ CLOUD_RUN_SERVICE="${CLOUD_RUN_SERVICE:-my-nitter}"
     || die "CLOUD_RUN_SERVICE must be a lowercase Cloud Run service name (maximum 49 characters)."
 [[ "${GCP_REGION}" =~ ^[a-z0-9-]+$ ]] || die "GCP_REGION contains invalid characters."
 COMPOSE_SESSION_SECRET="${CLOUD_RUN_SERVICE}-${GCP_REGION}-nitter-sessions"
+COMPOSE_HMAC_SECRET="${CLOUD_RUN_SERVICE}-${GCP_REGION}-nitter-hmac"
 
 ACTIVE_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -n 1 || true)"
 [[ -n "${ACTIVE_ACCOUNT}" ]] || die "gcloud is not authenticated. Run 'gcloud auth login'."
@@ -146,14 +147,21 @@ gcloud run services update "${CLOUD_RUN_SERVICE}" \
     --concurrency=4 \
     >/dev/null
 
-# Cloud Run Compose names provisioned secrets as SERVICE-REGION-SECRET. The
-# initial Compose revision needs its session secret to become ready; after the
-# stable mounts above are active, remove that transient duplicate.
-if gcloud secrets describe "${COMPOSE_SESSION_SECRET}" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
-    gcloud secrets delete "${COMPOSE_SESSION_SECRET}" \
+remove_transient_secret() {
+    local secret_name="$1"
+    if gcloud secrets describe "${secret_name}" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+        gcloud secrets delete "${secret_name}" \
         --project="${GCP_PROJECT_ID}" \
         --quiet >/dev/null
-fi
+    fi
+}
+
+# Cloud Run Compose names provisioned secrets as SERVICE-REGION-SECRET. The
+# initial Compose revision needs its session secret to become ready; after the
+# stable mounts above are active, remove transient duplicates from this and
+# any earlier failed deployment.
+remove_transient_secret "${COMPOSE_SESSION_SECRET}"
+remove_transient_secret "${COMPOSE_HMAC_SECRET}"
 
 SERVICE_URL="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
     --region="${GCP_REGION}" \
