@@ -139,6 +139,84 @@ def load_upstream_helper(nitter_dir: Path):
     return module
 
 
+async def _safe_find_visible_input(tab, name: str, timeout: int = 15):
+    """Select the actually visible input when X renders duplicate forms.
+
+    X currently renders responsive/transitioning duplicate inputs. The pinned
+    upstream helper only checks the bounding box, so it can select an input
+    with opacity 0 and leave keyboard focus on the account field. Keep the
+    login flow upstream-owned, but make this selector require a visible,
+    topmost element before upstream types into it.
+    """
+
+    selector = f'input[name="{name}"]'
+    for _ in range(timeout * 2):
+        try:
+            candidates = await tab.select_all(selector)
+            for candidate in candidates:
+                is_active = await candidate.apply(
+                    """(element) => {
+                        const rect = element.getBoundingClientRect();
+                        const style = getComputedStyle(element);
+                        if (rect.width <= 0 || rect.height <= 0
+                            || style.display === 'none'
+                            || style.visibility === 'hidden'
+                            || style.opacity === '0') return false;
+                        const x = rect.left + rect.width / 2;
+                        const y = rect.top + rect.height / 2;
+                        const top = document.elementFromPoint(x, y);
+                        return top === element || element.contains(top);
+                    }"""
+                )
+                if is_active:
+                    return candidate
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+    return None
+
+
+async def _safe_click_continue(tab):
+    """Click the topmost visible Continue button in duplicate X forms."""
+
+    try:
+        return await tab.evaluate(
+            """(() => {
+                for (const paragraph of document.querySelectorAll('p.jf-element')) {
+                    const text = paragraph.textContent.trim();
+                    if (!['Continue', 'Log in', 'Next'].includes(text)) continue;
+                    const rect = paragraph.getBoundingClientRect();
+                    const style = getComputedStyle(paragraph);
+                    if (rect.width <= 0 || rect.height <= 0
+                        || style.display === 'none'
+                        || style.visibility === 'hidden'
+                        || style.opacity === '0') continue;
+                    const top = document.elementFromPoint(
+                        rect.left + rect.width / 2,
+                        rect.top + rect.height / 2
+                    );
+                    if (top !== paragraph && !paragraph.contains(top)) continue;
+                    const clickable = paragraph.parentElement?.parentElement?.parentElement;
+                    if (!clickable) continue;
+                    clickable.click();
+                    return true;
+                }
+                return false;
+            })()"""
+        )
+    except Exception:
+        return False
+
+
+def harden_upstream_login_helper(helper) -> None:
+    """Patch only fragile selectors while retaining upstream login behavior."""
+
+    if hasattr(helper, "_find_visible_input"):
+        helper._find_visible_input = _safe_find_visible_input
+    if hasattr(helper, "_click_continue"):
+        helper._click_continue = _safe_click_continue
+
+
 def validate_session_record(record: Any, line_number: int = 1) -> None:
     if not isinstance(record, dict):
         fail(f"Session line {line_number} is not a JSON object.")
@@ -226,6 +304,7 @@ def main() -> int:
     reexec_in_virtualenv(root, venv_python)
 
     helper = load_upstream_helper(nitter_dir)
+    harden_upstream_login_helper(helper)
     session = asyncio.run(
         helper.login_and_get_session(
             username,
