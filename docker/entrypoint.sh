@@ -42,10 +42,9 @@ if [ "${ready}" != "1" ]; then
     exit 1
 fi
 
-envsubst '${NITTER_HOSTNAME} ${NITTER_HTTPS} ${NITTER_REDIS_HOST} ${NITTER_HMAC_KEY}' \
+envsubst "\${NITTER_HOSTNAME} \${NITTER_HTTPS} \${NITTER_REDIS_HOST} \${NITTER_HMAC_KEY}" \
     < /etc/nitter/nitter.conf.template \
     > "${NITTER_CONF_FILE}"
 
 echo "Starting Nitter."
 exec /src/nitter
-
