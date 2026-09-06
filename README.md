@@ -2,6 +2,8 @@
 
 A small, cost-conscious deployment wrapper for a personal, self-hosted [Nitter](https://github.com/zedeus/nitter) instance.
 
+Live instance: [https://x.thefrenchartist.dev/](https://x.thefrenchartist.dev/)
+
 This repository is intentionally designed around upstream Nitter rather than a fork. The local X/Twitter login is used once to produce a session file; only that session and Nitter's HMAC key are sent to GCP Secret Manager. The X password and TOTP seed never leave the local machine.
 
 The deployment wrapper, Docker build, local Compose stack, session validator, GCP scripts, and smoke tests are implemented. The local X session and authenticated Cloud Run deployment have been validated against the configured project.
@@ -18,6 +20,16 @@ The target deployment runs:
 
 The design is for occasional personal usage, not for a public, high-traffic service.
 
+## Live hostname
+
+The custom hostname is mapped directly to the Cloud Run service:
+
+```text
+https://x.thefrenchartist.dev/
+```
+
+This is not a GitHub Pages site or a static proxy. Nitter keeps its normal server-side routes, such as `/username` and `/username/status/...`, so no hash-routing workaround or upstream Nitter fork is required. The DNS mapping uses Google's managed HTTPS certificate; after DNS changes, certificate provisioning can take some time before the hostname works in every browser.
+
 ## Architecture
 
 ```text
@@ -31,6 +43,9 @@ Local machine
 GCP Secret Manager
       │ mounted at runtime
       ▼
+https://x.thefrenchartist.dev/
+      │
+      ▼
 Cloud Run service (min 0, max 1)
   ├── Nitter :8080
   └── Valkey :6379 (ephemeral cache)
@@ -38,6 +53,8 @@ Cloud Run service (min 0, max 1)
       ▼
   X/Twitter
 ```
+
+The deployment work has deliberately stayed at the wrapper and infrastructure level: upstream Nitter is built at a pinned commit, Valkey provides a disposable cache beside it, and Cloud Run handles the service lifecycle. The custom domain was verified and attached through Cloud Run's domain-mapping flow, while the X login material remains local and is never documented here.
 
 The upstream Nitter commit is pinned through `NITTER_REF`. Do not use `master` as a production build reference. The initial upstream `master` SHA observed for this plan is `1428b4c2b4246f92a7e5b2673438e5fb39fcc4a3`; verify it again before placing it in local configuration.
 
