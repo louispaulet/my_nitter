@@ -130,7 +130,6 @@ gcloud run services update "${CLOUD_RUN_SERVICE}" \
     --max=1 \
     --cpu-throttling \
     --concurrency=4 \
-    --no-allow-unauthenticated \
     >/dev/null
 
 # Cloud Run Compose names provisioned secrets as SERVICE-REGION-SECRET. The
