@@ -152,26 +152,27 @@ async def _safe_find_visible_input(tab, name: str, timeout: int = 15):
     selector = f'input[name="{name}"]'
     for _ in range(timeout * 2):
         try:
-            candidates = await tab.select_all(selector)
-            for candidate in candidates:
-                is_active = await candidate.apply(
-                    """(element) => {
+            active_index = await tab.evaluate(
+                f"""(() => {{
+                    const inputs = Array.from(document.querySelectorAll('{selector}'));
+                    const visible = (element) => {{
                         const rect = element.getBoundingClientRect();
                         const style = getComputedStyle(element);
-                        if (rect.width <= 0 || rect.height <= 0
-                            || style.display === 'none'
-                            || style.visibility === 'hidden'
-                            || style.opacity === '0') return false;
-                        const x = rect.left + rect.width / 2;
-                        const y = rect.top + rect.height / 2;
-                        const top = document.elementFromPoint(x, y);
-                        return top === element
-                            || element.contains(top)
-                            || (top && top.contains(element));
-                    }"""
-                )
-                if is_active:
-                    return candidate
+                        return rect.width > 0 && rect.height > 0
+                            && style.display !== 'none'
+                            && style.visibility !== 'hidden'
+                            && style.opacity !== '0';
+                    }};
+                    const active = inputs.findIndex((element) =>
+                        visible(element) && document.activeElement === element);
+                    if (active >= 0) return active;
+                    return inputs.findIndex(visible);
+                }})()"""
+            )
+            if isinstance(active_index, int) and active_index >= 0:
+                candidates = await tab.select_all(selector)
+                if active_index < len(candidates):
+                    return candidates[active_index]
         except Exception:
             pass
         await asyncio.sleep(0.5)
@@ -193,13 +194,6 @@ async def _safe_click_continue(tab):
                         || style.display === 'none'
                         || style.visibility === 'hidden'
                         || style.opacity === '0') continue;
-                    const top = document.elementFromPoint(
-                        rect.left + rect.width / 2,
-                        rect.top + rect.height / 2
-                    );
-                    if (top !== paragraph
-                        && !paragraph.contains(top)
-                        && !(top && top.contains(paragraph))) continue;
                     const clickable = paragraph.parentElement?.parentElement?.parentElement;
                     if (!clickable) continue;
                     clickable.click();
