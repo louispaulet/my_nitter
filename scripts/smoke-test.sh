@@ -64,10 +64,17 @@ if ready is None or ready.get("status") != "True":
 template = nested(service, "spec", "template") or service.get("template", {})
 scaling = template.get("scaling", {})
 annotations = nested(template, "metadata", "annotations") or {}
+service_annotations = service.get("metadata", {}).get("annotations", {})
 min_instances = scaling.get("minInstanceCount")
 max_instances = scaling.get("maxInstanceCount")
 if min_instances is None:
+    min_instances = service_annotations.get("run.googleapis.com/minScale")
+if min_instances is None:
     min_instances = annotations.get("autoscaling.knative.dev/minScale")
+if min_instances is None:
+    min_instances = 0
+if max_instances is None:
+    max_instances = service_annotations.get("run.googleapis.com/maxScale")
 if max_instances is None:
     max_instances = annotations.get("autoscaling.knative.dev/maxScale")
 if str(min_instances) != "0":
