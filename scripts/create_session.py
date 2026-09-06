@@ -187,7 +187,10 @@ async def _safe_click_continue(tab):
             """(() => {
                 for (const paragraph of document.querySelectorAll('p.jf-element')) {
                     const text = paragraph.textContent.trim();
-                    if (!['Continue', 'Log in', 'Next'].includes(text)) continue;
+                    if (![
+                        'Continue', 'Continuer', 'Log in', 'Se connecter',
+                        'Next', 'Suivant'
+                    ].includes(text)) continue;
                     const rect = paragraph.getBoundingClientRect();
                     const style = getComputedStyle(paragraph);
                     if (rect.width <= 0 || rect.height <= 0
