@@ -4,7 +4,7 @@ A small, cost-conscious deployment wrapper for a personal, self-hosted [Nitter](
 
 This repository is intentionally designed around upstream Nitter rather than a fork. The local X/Twitter login is used once to produce a session file; only that session and Nitter's HMAC key are sent to GCP Secret Manager. The X password and TOTP seed never leave the local machine.
 
-> **Implementation status:** this README describes the target workflow from `PLAN.MD`. The repository is currently at the documentation milestone; the scripts and deployment files referenced below are added by the later plan phases.
+The deployment wrapper, Docker build, local Compose stack, session validator, GCP scripts, and smoke tests are implemented. A real X session and GCP deployment still require the operator to complete any interactive X verification and provide an authenticated GCP project.
 
 ## What this is
 
@@ -82,6 +82,7 @@ git clone https://github.com/louispaulet/my_nitter.git
 cd my_nitter
 
 cp .env.example .env
+chmod 600 .env
 ```
 
 Fill `.env` with the local X account values and an exact upstream commit SHA. Do not commit `.env`.
