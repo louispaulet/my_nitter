@@ -165,7 +165,9 @@ async def _safe_find_visible_input(tab, name: str, timeout: int = 15):
                         const x = rect.left + rect.width / 2;
                         const y = rect.top + rect.height / 2;
                         const top = document.elementFromPoint(x, y);
-                        return top === element || element.contains(top);
+                        return top === element
+                            || element.contains(top)
+                            || (top && top.contains(element));
                     }"""
                 )
                 if is_active:
@@ -195,7 +197,9 @@ async def _safe_click_continue(tab):
                         rect.left + rect.width / 2,
                         rect.top + rect.height / 2
                     );
-                    if (top !== paragraph && !paragraph.contains(top)) continue;
+                    if (top !== paragraph
+                        && !paragraph.contains(top)
+                        && !(top && top.contains(paragraph))) continue;
                     const clickable = paragraph.parentElement?.parentElement?.parentElement;
                     if (!clickable) continue;
                     clickable.click();
