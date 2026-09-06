@@ -69,7 +69,7 @@ Install or configure these tools before using the corresponding workflow:
 - Python 3
 - Docker with Compose support
 - OpenSSL
-- `gcloud` CLI authenticated to a GCP project for deployment
+- `gcloud` CLI authenticated to a GCP project for deployment, with the `run-compose` component (`gcloud components install run-compose`)
 
 The plan uses `europe-west1` by default and expects an existing GCP project.
 
@@ -158,7 +158,7 @@ gcloud auth login
 ./scripts/gcp-init.sh
 ```
 
-Initialization should validate the active account/project and enable only the required APIs: Cloud Run, Cloud Build, Artifact Registry, and Secret Manager. It should be safe to run more than once.
+Initialization should validate the active account/project and enable only the required APIs: Cloud Resource Manager, Cloud Run, Cloud Build, Artifact Registry, and Secret Manager. It should be safe to run more than once.
 
 ## Deploy
 

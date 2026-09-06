@@ -26,6 +26,16 @@ read_value() {
 [[ -s "${HMAC_FILE}" ]] || die "${HMAC_FILE} is missing or empty. Run './scripts/bootstrap.sh'."
 
 command -v gcloud >/dev/null 2>&1 || die "gcloud is required. Install the Google Cloud CLI and try again."
+
+# Homebrew's gcloud wrapper may not add the SDK bin directory to PATH. The
+# Compose command dispatches to the run-compose binary, so make that component
+# discoverable without relying on a particular installation method.
+GCLOUD_SDK_ROOT="$(gcloud info --format='value(installation.sdk_root)' 2>/dev/null || true)"
+if [[ -n "${GCLOUD_SDK_ROOT}" && -x "${GCLOUD_SDK_ROOT}/bin/run-compose" ]]; then
+    PATH="${GCLOUD_SDK_ROOT}/bin:${PATH}"
+    export PATH
+fi
+command -v run-compose >/dev/null 2>&1 || die "The gcloud 'run-compose' component is required. Install it with 'gcloud components install run-compose'."
 gcloud run compose up --help >/dev/null 2>&1 || die "This gcloud installation does not provide 'gcloud run compose'."
 
 NITTER_REF="$(read_value "${ENV_FILE}" NITTER_REF)"
@@ -137,4 +147,3 @@ echo "Billing: request-based"
 echo "X session: configured"
 echo "X password: NOT uploaded"
 echo "X TOTP secret: NOT uploaded"
-
