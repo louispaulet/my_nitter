@@ -1,0 +1,37 @@
+services:
+  nitter:
+    build:
+      context: .
+      args:
+        NITTER_REF: ${NITTER_REF}
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      NITTER_HOSTNAME: localhost:8080
+      NITTER_HTTPS: "false"
+      NITTER_REDIS_HOST: valkey
+      NITTER_CONF_FILE: /tmp/nitter.conf
+      NITTER_SESSIONS_FILE: /run/secrets/nitter_sessions
+    secrets:
+      - nitter_sessions
+      - nitter_hmac
+    depends_on:
+      - valkey
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    command:
+      - valkey-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    expose:
+      - "6379"
+
+secrets:
+  nitter_sessions:
+    file: ./secrets/sessions.jsonl
+  nitter_hmac:
+    file: ./secrets/hmac_key
+

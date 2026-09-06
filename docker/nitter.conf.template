@@ -1,0 +1,44 @@
+[Server]
+hostname = "${NITTER_HOSTNAME}"
+title = "nitter"
+address = "0.0.0.0"
+port = 8080
+https = ${NITTER_HTTPS}
+httpMaxConnections = 100
+staticDir = "./public"
+
+[Cache]
+listMinutes = 240
+rssMinutes = 10
+redisHost = "${NITTER_REDIS_HOST}"
+redisPort = 6379
+redisPassword = ""
+redisConnections = 5
+redisMaxConnections = 10
+
+[Config]
+hmacKey = "${NITTER_HMAC_KEY}"
+base64Media = false
+enableRSS = true
+enableRSSUserTweets = true
+enableRSSUserReplies = true
+enableRSSUserMedia = true
+enableRSSUserArticles = true
+enableRSSSearch = true
+enableRSSList = true
+enableDebug = false
+proxy = ""
+proxyAuth = ""
+apiProxy = ""
+disableTid = false
+maxConcurrentReqs = 2
+maxRetries = 1
+retryDelayMs = 150
+
+[Preferences]
+theme = "Nitter"
+replaceTwitter = "${NITTER_HOSTNAME}"
+proxyVideos = true
+hlsPlayback = false
+infiniteScroll = false
+

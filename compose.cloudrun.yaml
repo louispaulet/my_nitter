@@ -1,0 +1,41 @@
+name: ${CLOUD_RUN_SERVICE}
+
+services:
+  nitter:
+    build:
+      context: .
+      args:
+        NITTER_REF: ${NITTER_REF}
+    ports:
+      - "8080:8080"
+    environment:
+      NITTER_HOSTNAME: ${NITTER_HOSTNAME}
+      NITTER_HTTPS: "true"
+      NITTER_REDIS_HOST: valkey
+      NITTER_CONF_FILE: /tmp/nitter.conf
+      NITTER_SESSIONS_FILE: /run/secrets/nitter_sessions
+    secrets:
+      - nitter_sessions
+      - nitter_hmac
+    depends_on:
+      - valkey
+    x-google-cloudrun:
+      ingress-container: true
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    command:
+      - valkey-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    expose:
+      - "6379"
+
+secrets:
+  nitter_sessions:
+    file: ./secrets/sessions.jsonl
+  nitter_hmac:
+    file: ./secrets/hmac_key
+
