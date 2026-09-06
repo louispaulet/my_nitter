@@ -199,6 +199,11 @@ def atomically_write_session(root: Path, session: dict[str, Any]) -> tuple[Path,
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="Validate the existing local sessions.jsonl without logging in.",
+    )
+    parser.add_argument(
         "--headless",
         action="store_true",
         help="Run the upstream browser helper headlessly (may increase detection risk).",
@@ -209,6 +214,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     root = project_root()
+    if args.validate_only:
+        count = validate_sessions_file(root / "secrets" / "sessions.jsonl")
+        print(f"Sessions found: {count}")
+        print("Required fields: present")
+        return 0
     values = parse_dotenv(root / ".env")
     username, password, totp_seed, nitter_ref = required_config(values)
     nitter_dir = ensure_nitter_checkout(root, nitter_ref)
@@ -243,4 +253,3 @@ if __name__ == "__main__":
     except Exception as error:
         print(f"ERROR: {error}", file=sys.stderr)
         raise SystemExit(1)
-
