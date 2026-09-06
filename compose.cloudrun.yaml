@@ -35,7 +35,8 @@ services:
 
 secrets:
   nitter_sessions:
+    name: my-nitter-sessions
     file: ./secrets/sessions.jsonl
   nitter_hmac:
+    name: my-nitter-hmac
     file: ./secrets/hmac_key
-
