@@ -39,6 +39,7 @@ gcloud config set project "${GCP_PROJECT_ID}" >/dev/null
 gcloud config set run/region "${GCP_REGION}" >/dev/null
 
 gcloud services enable \
+    cloudresourcemanager.googleapis.com \
     run.googleapis.com \
     cloudbuild.googleapis.com \
     artifactregistry.googleapis.com \
@@ -49,4 +50,3 @@ echo "GCP initialization complete."
 echo "Project: ${GCP_PROJECT_ID}"
 echo "Region: ${GCP_REGION}"
 echo "Account: ${ACTIVE_ACCOUNT}"
-

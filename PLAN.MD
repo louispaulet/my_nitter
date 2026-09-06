@@ -1338,6 +1338,7 @@ Enable only what is necessary:
 
 ```bash
 gcloud services enable \
+    cloudresourcemanager.googleapis.com \
     run.googleapis.com \
     cloudbuild.googleapis.com \
     artifactregistry.googleapis.com \
