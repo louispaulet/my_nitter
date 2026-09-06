@@ -14,9 +14,9 @@ services:
       NITTER_REDIS_HOST: valkey
       NITTER_CONF_FILE: /tmp/nitter.conf
       NITTER_SESSIONS_FILE: /run/secrets/nitter_sessions
+      NITTER_ALLOW_EPHEMERAL_HMAC: "true"
     secrets:
       - nitter_sessions
-      - nitter_hmac
     depends_on:
       - valkey
     x-google-cloudrun:
@@ -37,6 +37,3 @@ secrets:
   nitter_sessions:
     name: my-nitter-sessions
     file: ./secrets/sessions.jsonl
-  nitter_hmac:
-    name: my-nitter-hmac
-    file: ./secrets/hmac_key

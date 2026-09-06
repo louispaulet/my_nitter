@@ -4,7 +4,7 @@ A small, cost-conscious deployment wrapper for a personal, self-hosted [Nitter](
 
 This repository is intentionally designed around upstream Nitter rather than a fork. The local X/Twitter login is used once to produce a session file; only that session and Nitter's HMAC key are sent to GCP Secret Manager. The X password and TOTP seed never leave the local machine.
 
-The deployment wrapper, Docker build, local Compose stack, session validator, GCP scripts, and smoke tests are implemented. A real X session and GCP deployment still require the operator to complete any interactive X verification and provide an authenticated GCP project.
+The deployment wrapper, Docker build, local Compose stack, session validator, GCP scripts, and smoke tests are implemented. The local X session and authenticated Cloud Run deployment have been validated against the configured project.
 
 ## What this is
 
@@ -176,6 +176,8 @@ The deployment should:
 4. Deploy Nitter and Valkey as one Cloud Run service.
 5. Configure minimum instances `0`, maximum instances `1`, request-based billing/CPU throttling, and modest concurrency.
 6. Keep Cloud Run authenticated unless public access was explicitly requested later.
+
+Cloud Run Compose currently gives each Compose secret the default `/run/secrets` mount directory. Mounting both secrets there is rejected by Cloud Run, so `compose.cloudrun.yaml` uses the session secret only for the initial Compose revision. `deploy.sh` then replaces that transient mount with two stable Secret Manager mounts at `/run/secrets/sessions/nitter_sessions` and `/run/secrets/hmac/nitter_hmac`, disables the temporary bootstrap HMAC, and removes the transient Compose-created session secret.
 
 The script should print only non-sensitive metadata such as service, region, URL, pinned reference, access mode, and scaling settings. It must explicitly confirm that the X password and TOTP seed were not uploaded.
 

@@ -6,6 +6,8 @@ set -eu
 : "${NITTER_HTTPS:=true}"
 : "${NITTER_CONF_FILE:=/tmp/nitter.conf}"
 : "${NITTER_SESSIONS_FILE:=/run/secrets/nitter_sessions}"
+: "${NITTER_HMAC_FILE:=/run/secrets/nitter_hmac}"
+: "${NITTER_ALLOW_EPHEMERAL_HMAC:=false}"
 
 if [ ! -f "${NITTER_SESSIONS_FILE}" ]; then
     echo "ERROR: Nitter sessions file is missing." >&2
@@ -17,13 +19,20 @@ if [ ! -s "${NITTER_SESSIONS_FILE}" ]; then
     exit 1
 fi
 
-if [ ! -f /run/secrets/nitter_hmac ]; then
+umask 077
+if [ -f "${NITTER_HMAC_FILE}" ]; then
+    if [ ! -s "${NITTER_HMAC_FILE}" ]; then
+        echo "ERROR: Nitter HMAC secret is empty." >&2
+        exit 1
+    fi
+    NITTER_HMAC_KEY="$(cat "${NITTER_HMAC_FILE}")"
+elif [ "${NITTER_ALLOW_EPHEMERAL_HMAC}" = "true" ]; then
+    echo "No HMAC file mounted; generating a temporary bootstrap key."
+    NITTER_HMAC_KEY="$(openssl rand -hex 32)"
+else
     echo "ERROR: Nitter HMAC secret is missing." >&2
     exit 1
 fi
-
-umask 077
-NITTER_HMAC_KEY="$(cat /run/secrets/nitter_hmac)"
 export NITTER_HMAC_KEY
 
 echo "Waiting for Valkey at ${NITTER_REDIS_HOST}:6379..."

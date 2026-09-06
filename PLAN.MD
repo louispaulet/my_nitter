@@ -1607,6 +1607,21 @@ and current official Cloud Run Compose behavior.
 
 Adapt accordingly.
 
+Current Cloud Run Compose behavior mounts each Compose secret at the default
+`/run/secrets` directory. Cloud Run rejects two secret volumes at the same
+mount path. Use the session secret for the initial Compose revision so the
+container can become ready, then replace that transient mount with the two
+stable Secret Manager secrets using distinct paths:
+
+```text
+/run/secrets/sessions/nitter_sessions
+/run/secrets/hmac/nitter_hmac
+```
+
+The entrypoint may generate a temporary HMAC only for that bootstrap revision.
+The deployment script must disable that mode in the final revision and remove
+the transient Compose-created session secret after the stable mounts are active.
+
 ---
 
 # Phase 26: Prefer Cloud Run, NOT Cloud Functions

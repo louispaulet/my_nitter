@@ -93,7 +93,7 @@ all_env_names = {
     for container in containers
     for item in container.get("env", [])
 }
-for required in {"NITTER_HOSTNAME", "NITTER_REDIS_HOST", "NITTER_SESSIONS_FILE"}:
+for required in {"NITTER_HOSTNAME", "NITTER_REDIS_HOST", "NITTER_SESSIONS_FILE", "NITTER_HMAC_FILE"}:
     if required not in all_env_names:
         raise SystemExit(f"ERROR: required runtime variable {required} is missing.")
 for forbidden in {"X_USERNAME", "X_PASSWORD", "X_TOTP_SECRET"}:
@@ -114,12 +114,28 @@ mounted_volume_names = {
 if len(secret_volume_names & mounted_volume_names) < 2:
     raise SystemExit("ERROR: expected both Secret Manager files mounted under /run/secrets.")
 
+secret_mount_paths = {
+    mount.get("mountPath")
+    for mount in nitter.get("volumeMounts", [])
+    if mount.get("name") in secret_volume_names
+}
+if not {"/run/secrets/sessions", "/run/secrets/hmac"}.issubset(secret_mount_paths):
+    raise SystemExit(f"ERROR: expected distinct stable secret mount directories, found {sorted(secret_mount_paths)}.")
+
+runtime_env = {
+    item.get("name"): item.get("value")
+    for container in containers
+    for item in container.get("env", [])
+}
+if runtime_env.get("NITTER_ALLOW_EPHEMERAL_HMAC") == "true":
+    raise SystemExit("ERROR: temporary bootstrap HMAC mode is still enabled.")
+
 print("Cloud Run configuration checks passed")
 print("Containers: nitter, valkey")
 print("Minimum instances: 0")
 print("Maximum instances: 1")
 print("Credential environment variables: absent")
-print("Secret mounts: sessions and HMAC present")
+print("Secret mounts: stable sessions and HMAC files present")
 PY
 
 SERVICE_URL="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
@@ -140,4 +156,3 @@ curl --fail --silent --show-error --max-time 90 \
 echo "HTTP smoke tests passed"
 echo "Service URL: ${SERVICE_URL}"
 echo "Profile tested: ${TEST_PROFILE}"
-

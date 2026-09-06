@@ -49,6 +49,7 @@ CLOUD_RUN_SERVICE="${CLOUD_RUN_SERVICE:-my-nitter}"
 [[ "${CLOUD_RUN_SERVICE}" =~ ^[a-z][a-z0-9-]{0,48}$ ]] \
     || die "CLOUD_RUN_SERVICE must be a lowercase Cloud Run service name (maximum 49 characters)."
 [[ "${GCP_REGION}" =~ ^[a-z0-9-]+$ ]] || die "GCP_REGION contains invalid characters."
+COMPOSE_SESSION_SECRET="${CLOUD_RUN_SERVICE}-${GCP_REGION}-nitter-sessions"
 
 ACTIVE_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -n 1 || true)"
 [[ -n "${ACTIVE_ACCOUNT}" ]] || die "gcloud is not authenticated. Run 'gcloud auth login'."
@@ -123,12 +124,23 @@ fi
 gcloud run services update "${CLOUD_RUN_SERVICE}" \
     --region="${GCP_REGION}" \
     --project="${GCP_PROJECT_ID}" \
+    --set-secrets="/run/secrets/sessions/nitter_sessions=my-nitter-sessions:latest,/run/secrets/hmac/nitter_hmac=my-nitter-hmac:latest" \
+    --update-env-vars="NITTER_SESSIONS_FILE=/run/secrets/sessions/nitter_sessions,NITTER_HMAC_FILE=/run/secrets/hmac/nitter_hmac,NITTER_ALLOW_EPHEMERAL_HMAC=false" \
     --min=0 \
     --max=1 \
     --cpu-throttling \
     --concurrency=4 \
     --no-allow-unauthenticated \
     >/dev/null
+
+# Cloud Run Compose names provisioned secrets as SERVICE-REGION-SECRET. The
+# initial Compose revision needs its session secret to become ready; after the
+# stable mounts above are active, remove that transient duplicate.
+if gcloud secrets describe "${COMPOSE_SESSION_SECRET}" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+    gcloud secrets delete "${COMPOSE_SESSION_SECRET}" \
+        --project="${GCP_PROJECT_ID}" \
+        --quiet >/dev/null
+fi
 
 SERVICE_URL="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
     --region="${GCP_REGION}" \
@@ -145,5 +157,6 @@ echo "Maximum instances: 1"
 echo "Access: authenticated"
 echo "Billing: request-based"
 echo "X session: configured"
+echo "Secret mounts: stable session and HMAC files"
 echo "X password: NOT uploaded"
 echo "X TOTP secret: NOT uploaded"
