@@ -84,6 +84,20 @@ ensure_secret() {
 ensure_secret my-nitter-sessions "${SESSIONS_FILE}"
 ensure_secret my-nitter-hmac "${HMAC_FILE}"
 
+PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT_ID}" --format='value(projectNumber)')"
+RUNTIME_SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+grant_secret_access() {
+    local secret_name="$1"
+    gcloud secrets add-iam-policy-binding "${secret_name}" \
+        --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
+        --role=roles/secretmanager.secretAccessor \
+        --project="${GCP_PROJECT_ID}" \
+        --quiet >/dev/null
+}
+
+grant_secret_access my-nitter-sessions
+grant_secret_access my-nitter-hmac
+
 existing_url="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
     --region="${GCP_REGION}" \
     --project="${GCP_PROJECT_ID}" \

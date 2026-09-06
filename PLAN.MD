@@ -2006,14 +2006,15 @@ Responsibilities in order:
 9. Compute or retrieve production hostname.
 10. Create/update Secret Manager secret for sessions.jsonl.
 11. Create/update Secret Manager secret for HMAC key.
-12. Export required Compose substitutions.
-13. Deploy Cloud Run Compose service.
-14. Set minimum instances = 0.
-15. Set maximum instances = 1.
-16. Configure request-based billing / CPU throttling.
-17. Retrieve deployed URL.
-18. Verify expected URL configuration.
-19. Print non-sensitive deployment summary.
+12. Grant the Cloud Run runtime identity Secret Manager accessor on those secrets.
+13. Export required Compose substitutions.
+14. Deploy Cloud Run Compose service.
+15. Set minimum instances = 0.
+16. Set maximum instances = 1.
+17. Configure request-based billing / CPU throttling.
+18. Retrieve deployed URL.
+19. Verify expected URL configuration.
+20. Print non-sensitive deployment summary.
 ```
 
 Validate before deployment:
