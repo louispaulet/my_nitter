@@ -55,6 +55,9 @@ def nested(data, *keys):
 service = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 if not service.get("status", {}).get("url"):
     raise SystemExit("ERROR: Cloud Run service has no URL.")
+service_annotations = service.get("metadata", {}).get("annotations", {})
+if service_annotations.get("run.googleapis.com/iap-enabled") != "true":
+    raise SystemExit("ERROR: Cloud Run IAP is not enabled.")
 
 conditions = service.get("status", {}).get("conditions", [])
 ready = next((item for item in conditions if item.get("type") == "Ready"), None)
@@ -143,6 +146,7 @@ print("Minimum instances: 0")
 print("Maximum instances: 1")
 print("Credential environment variables: absent")
 print("Secret mounts: stable sessions and HMAC files present")
+print("Identity-Aware Proxy: enabled")
 PY
 
 SERVICE_URL="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
@@ -187,12 +191,45 @@ then
     die "Cloud Run IAM allowlist checks failed."
 fi
 
+IAP_POLICY="$(gcloud iap web get-iam-policy \
+    --project="${GCP_PROJECT_ID}" \
+    --region="${GCP_REGION}" \
+    --resource-type=cloud-run \
+    --service="${CLOUD_RUN_SERVICE}" \
+    --format=json)"
+if ! IAP_POLICY="${IAP_POLICY}" python3 - "${INVOKER_MEMBER}" <<'PY'
+import json
+import os
+import sys
+
+policy = json.loads(os.environ["IAP_POLICY"])
+principal = sys.argv[1]
+bindings = policy.get("bindings", [])
+if any(
+    binding.get("role") == "roles/iap.httpsResourceAccessor"
+    and {"allUsers", "allAuthenticatedUsers"}.intersection(binding.get("members", []))
+    for binding in bindings
+):
+    raise SystemExit("ERROR: IAP grants browser access to a broad principal.")
+if not any(
+    binding.get("role") == "roles/iap.httpsResourceAccessor"
+    and any(member.lower() == principal.lower() for member in binding.get("members", []))
+    for binding in bindings
+):
+    raise SystemExit("ERROR: active gcloud identity is missing the IAP browser-access role.")
+PY
+then
+    die "Cloud Run IAP allowlist checks failed."
+fi
+
 python3 - "${metadata_file}" "${GCP_PROJECT_ID}" "${GCP_REGION}" "${CLOUD_RUN_SERVICE}" <<'PY'
 import json
 import subprocess
 import sys
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 service = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 hosts = {urlparse(service.get("status", {}).get("url", "")).netloc}
@@ -214,42 +251,33 @@ for mapping in domain_data:
     if mapping.get("spec", {}).get("routeName") == sys.argv[4]:
         domain = mapping.get("metadata", {}).get("name", "")
         hosts.add(urlparse(domain if "://" in domain else f"https://{domain}").netloc)
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+opener = build_opener(NoRedirect)
 for host in sorted(host for host in hosts if host):
-    result = subprocess.run(
-        ["curl", "--silent", "--show-error", "--max-time", "30", "-o", "/dev/null",
-         "-w", "%{http_code}", f"https://{host}/"],
-        check=True, capture_output=True, text=True,
-    )
-    if result.stdout not in {"401", "403"}:
-        raise SystemExit(f"ERROR: anonymous access to a Cloud Run URL returned HTTP {result.stdout}.")
-print("Anonymous access blocked on the service URL aliases")
-PY
-TEST_PROFILE="${NITTER_TEST_PROFILE:-Jack}"
-python3 - "${SERVICE_URL}" "${TEST_PROFILE}" <<'PY'
-import subprocess
-import sys
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-
-service_url, profile = sys.argv[1:]
-token = subprocess.check_output(["gcloud", "auth", "print-identity-token"], text=True).strip()
-for path in ("/", f"/{profile}"):
-    request = Request(
-        service_url + path,
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    try:
-        with urlopen(request, timeout=90) as response:
-            if response.status != 200:
-                raise SystemExit(f"ERROR: authenticated request returned HTTP {response.status}.")
-            response.read()
-    except HTTPError as error:
-        raise SystemExit(f"ERROR: authenticated request returned HTTP {error.code}.") from None
-    except URLError:
-        raise SystemExit("ERROR: authenticated request could not reach Cloud Run.") from None
+    for path in ("/", "/Jack/rss"):
+        request = Request(f"https://{host}{path}")
+        try:
+            response = opener.open(request, timeout=30)
+            status = response.status
+            location = response.headers.get("Location", "")
+        except HTTPError as error:
+            status = error.code
+            location = error.headers.get("Location", "")
+        except URLError:
+            raise SystemExit("ERROR: anonymous IAP check could not reach a service URL.") from None
+        login_host = urlparse(location).hostname or ""
+        if status != 302 or login_host.lower() != "accounts.google.com":
+            raise SystemExit(
+                f"ERROR: anonymous request to a service URL returned HTTP {status} "
+                "without a Google sign-in redirect."
+            )
+print("Anonymous homepage and RSS requests redirect to Google sign-in on all service URLs")
 PY
 
-echo "HTTP smoke tests passed"
+echo "IAP smoke tests passed"
 echo "Service URL: ${SERVICE_URL}"
-echo "Profile tested: ${TEST_PROFILE}"
-echo "Access: IAM allowlist; anonymous requests blocked"
+echo "Access: Google IAP; browser sign-in required"

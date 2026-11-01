@@ -100,6 +100,7 @@ gcloud projects describe "${GCP_PROJECT_ID}" --format='value(projectId)' >/dev/n
 
 gcloud config set project "${GCP_PROJECT_ID}" >/dev/null
 gcloud config set run/region "${GCP_REGION}" >/dev/null
+gcloud services enable iap.googleapis.com --project="${GCP_PROJECT_ID}" >/dev/null
 
 "${ROOT_DIR}/scripts/create_session.py" --validate-only
 
@@ -181,9 +182,31 @@ gcloud run services update "${CLOUD_RUN_SERVICE}" \
     --min=0 \
     --max=1 \
     --cpu-throttling \
+    --iap \
     --invoker-iam-check \
     --concurrency=4 \
     >/dev/null
+
+# IAP needs its service agent to invoke the service. The active deploy identity
+# also receives the IAP browser-access role; no broad IAP principal is added.
+gcloud services identity create \
+    --service=iap.googleapis.com \
+    --project="${GCP_PROJECT_ID}" >/dev/null
+IAP_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-iap.iam.gserviceaccount.com"
+gcloud run services add-iam-policy-binding "${CLOUD_RUN_SERVICE}" \
+    --region="${GCP_REGION}" \
+    --project="${GCP_PROJECT_ID}" \
+    --member="serviceAccount:${IAP_SERVICE_AGENT}" \
+    --role=roles/run.invoker \
+    --quiet >/dev/null
+gcloud iap web add-iam-policy-binding \
+    --project="${GCP_PROJECT_ID}" \
+    --region="${GCP_REGION}" \
+    --resource-type=cloud-run \
+    --service="${CLOUD_RUN_SERVICE}" \
+    --member="${INVOKER_MEMBER}" \
+    --role=roles/iap.httpsResourceAccessor \
+    --quiet >/dev/null
 
 # Keep the deploy operator on the single-user allowlist and remove broad
 # invoker principals even if an earlier manual change made the service public.
@@ -236,7 +259,7 @@ echo "URL: ${SERVICE_URL}"
 echo "Nitter ref: ${NITTER_REF}"
 echo "Minimum instances: 0"
 echo "Maximum instances: 1"
-echo "Access: authenticated"
+echo "Access: Google IAP; active identity allowlisted"
 echo "Billing: request-based"
 echo "X session: configured"
 echo "Secret mounts: stable session and HMAC files"
