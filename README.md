@@ -93,6 +93,8 @@ Open the public-facing Nitter URL in a normal browser:
 
 Google's hosted sign-in page appears when you are not already signed in. Use the single Google account on the IAP access list; after sign-in, Nitter opens directly in the browser. No local proxy, `gcloud` installation, Python helper, or workstation port is needed. The service's canonical and alternate `run.app` URLs are protected by the same IAP policy.
 
+End-to-end browser access was verified on 2026-11-01: signing in through Google IAP opened Nitter successfully.
+
 This project has no Google organization, so the one-time IAP setup uses an external OAuth consent brand in Testing mode, with the authorized account listed both as an OAuth test user and an IAP user. A first-time Google consent screen may ask to share the account's email address with My Nitter so IAP can identify the allowlisted user. Do not publish the OAuth app or add other users unless the access policy is intentionally expanded.
 
 ## Requirements
