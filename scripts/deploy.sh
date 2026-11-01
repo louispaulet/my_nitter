@@ -181,6 +181,7 @@ gcloud run services update "${CLOUD_RUN_SERVICE}" \
     --min=0 \
     --max=1 \
     --cpu-throttling \
+    --invoker-iam-check \
     --concurrency=4 \
     >/dev/null
 
