@@ -149,6 +149,81 @@ SERVICE_URL="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
     --region="${GCP_REGION}" \
     --project="${GCP_PROJECT_ID}" \
     --format='value(status.url)')"
+
+ACTIVE_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -n 1 || true)"
+[[ -n "${ACTIVE_ACCOUNT}" ]] || die "gcloud is not authenticated. Run 'gcloud auth login'."
+if [[ "${ACTIVE_ACCOUNT}" == *"gserviceaccount.com" ]]; then
+    INVOKER_MEMBER="serviceAccount:${ACTIVE_ACCOUNT}"
+else
+    INVOKER_MEMBER="user:${ACTIVE_ACCOUNT}"
+fi
+IAM_POLICY="$(gcloud run services get-iam-policy "${CLOUD_RUN_SERVICE}" \
+    --region="${GCP_REGION}" \
+    --project="${GCP_PROJECT_ID}" \
+    --format=json)"
+if ! IAM_POLICY="${IAM_POLICY}" python3 - "${INVOKER_MEMBER}" <<'PY'
+import json
+import os
+import sys
+
+policy = json.loads(os.environ["IAM_POLICY"])
+principal = sys.argv[1]
+bindings = policy.get("bindings", [])
+broad_members = {"allUsers", "allAuthenticatedUsers"}
+if any(
+    binding.get("role") == "roles/run.invoker"
+    and broad_members.intersection(binding.get("members", []))
+    for binding in bindings
+):
+    raise SystemExit("ERROR: Cloud Run still grants invoke access to a broad principal.")
+if not any(
+    binding.get("role") == "roles/run.invoker"
+    and principal in binding.get("members", [])
+    for binding in bindings
+):
+    raise SystemExit("ERROR: active gcloud identity is missing roles/run.invoker.")
+PY
+then
+    die "Cloud Run IAM allowlist checks failed."
+fi
+
+python3 - "${metadata_file}" "${GCP_PROJECT_ID}" "${GCP_REGION}" "${CLOUD_RUN_SERVICE}" <<'PY'
+import json
+import subprocess
+import sys
+from pathlib import Path
+from urllib.parse import urlparse
+
+service = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+hosts = {urlparse(service.get("status", {}).get("url", "")).netloc}
+annotations = service.get("metadata", {}).get("annotations", {})
+try:
+    urls = json.loads(annotations.get("run.googleapis.com/urls", "[]"))
+except json.JSONDecodeError:
+    urls = []
+hosts.update(urlparse(value).netloc for value in urls)
+domain_mappings = subprocess.run(
+    ["gcloud", "beta", "run", "domain-mappings", "list",
+     "--project=" + sys.argv[2], "--region=" + sys.argv[3], "--format=json"],
+    check=True, capture_output=True, text=True,
+).stdout
+domain_data = json.loads(domain_mappings)
+if isinstance(domain_data, dict):
+    domain_data = domain_data.get("items", [])
+for mapping in domain_data:
+    if mapping.get("spec", {}).get("routeName") == sys.argv[4]:
+        domain = mapping.get("metadata", {}).get("name", "")
+        hosts.add(urlparse(domain if "://" in domain else f"https://{domain}").netloc)
+for host in sorted(host for host in hosts if host):
+    result = subprocess.run(
+        ["curl", "--silent", "--show-error", "--max-time", "30", "-o", "/dev/null",
+         "-w", "%{http_code}", f"https://{host}/"],
+        check=True, capture_output=True, text=True,
+    )
+    if result.stdout not in {"401", "403"}:
+        raise SystemExit(f"ERROR: anonymous access to a Cloud Run URL returned HTTP {result.stdout}.")
+print("Anonymous access blocked on the service URL aliases")
+PY
 TOKEN="$(gcloud auth print-identity-token)"
 
 curl --fail --silent --show-error --max-time 90 \
@@ -163,3 +238,4 @@ curl --fail --silent --show-error --max-time 90 \
 echo "HTTP smoke tests passed"
 echo "Service URL: ${SERVICE_URL}"
 echo "Profile tested: ${TEST_PROFILE}"
+echo "Access: IAM allowlist; anonymous requests blocked"

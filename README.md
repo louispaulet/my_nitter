@@ -2,11 +2,11 @@
 
 A small, cost-conscious deployment wrapper for a personal, self-hosted [Nitter](https://github.com/zedeus/nitter) instance.
 
-Live instance: [https://x.thefrenchartist.dev/](https://x.thefrenchartist.dev/)
+Private instance: `my-nitter` in `europe-west1`. Use the authenticated local browser proxy described below.
 
 This repository is intentionally designed around upstream Nitter rather than a fork. The local X/Twitter login is used once to produce a session file; only that session and Nitter's HMAC key are sent to GCP Secret Manager. The X password and TOTP seed never leave the local machine.
 
-The deployment wrapper, Docker build, local Compose stack, session validator, GCP scripts, and smoke tests are implemented. The local X session and authenticated Cloud Run deployment have been validated against the configured project.
+The deployment wrapper, Docker build, local Compose stack, session validator, GCP scripts, and smoke tests are implemented. The local X session and private Cloud Run deployment have been validated against the configured project.
 
 ## What this is
 
@@ -28,7 +28,17 @@ The custom hostname is mapped directly to the Cloud Run service:
 https://x.thefrenchartist.dev/
 ```
 
-This is not a GitHub Pages site or a static proxy. Nitter keeps its normal server-side routes, such as `/username` and `/username/status/...`, so no hash-routing workaround or upstream Nitter fork is required. The DNS mapping uses Google's managed HTTPS certificate; after DNS changes, certificate provisioning can take some time before the hostname works in every browser.
+This is not a GitHub Pages site or a static proxy. Nitter keeps its normal server-side routes, such as `/username` and `/username/status/...`, so no hash-routing workaround or upstream Nitter fork is required. The DNS mapping uses Google's managed HTTPS certificate. IAM protects this hostname and every generated `run.app` URL equally; a direct URL does not bypass the access policy.
+
+### Route exposure audit
+
+Before the IAM change, all three hostnames returned the Nitter homepage without authentication:
+
+- `https://x.thefrenchartist.dev/` (Cloud Run custom domain mapping)
+- `https://my-nitter-qesachrbeq-ew.a.run.app/` (the supplied service URL)
+- `https://my-nitter-366762423535.europe-west1.run.app/` (the canonical generated URL)
+
+There was no separate access-control front door. Each hostname routed directly to the same Cloud Run service, and every Nitter path shared that exposure: `/`, profile and follower timelines, post/thread/article/embed pages, `/search` and hashtag searches, user/search/list RSS feeds, `/pic` and video/media routes, preferences (`/settings` and its POST actions), and `/.health`. The upstream `/.sessions` diagnostic route is disabled by `enableDebug = false`. Cloud Run IAM applies to the service as a whole, so the private policy now blocks anonymous requests to every hostname and path; the default `run.app` address cannot bypass it.
 
 ## Architecture
 
@@ -43,10 +53,7 @@ Local machine
 GCP Secret Manager
       │ mounted at runtime
       ▼
-https://x.thefrenchartist.dev/
-      │
-      ▼
-Cloud Run service (min 0, max 1)
+Browser → authenticated localhost proxy → private Cloud Run service
   ├── Nitter :8080
   └── Valkey :6379 (ephemeral cache)
       │
@@ -76,7 +83,20 @@ Production receives only:
 - `sessions.jsonl`, stored as a Secret Manager secret.
 - Nitter's generated HMAC key, stored as a separate Secret Manager secret.
 
-Cloud Run must not receive `X_USERNAME`, `X_PASSWORD`, or `X_TOTP_SECRET` as environment variables or secrets. The deployment is authenticated initially; anonymous public access is deliberately opt-in because every visitor would consume the single X session's capacity.
+Cloud Run must not receive `X_USERNAME`, `X_PASSWORD`, or `X_TOTP_SECRET` as environment variables or secrets. At the service level, only the active deploy identity receives `roles/run.invoker`. Broad `allUsers` and `allAuthenticatedUsers` invoker bindings are removed, so the custom domain and every direct `run.app` URL require an authenticated Cloud Run request. Project owners and administrators can still inherit invoke permission from project-level roles; those roles are managed separately from this service allowlist.
+
+### Use Nitter in a browser
+
+Cloud Run IAM does not automatically add a Google sign-in token to a normal browser request. Use the local helper to open the private service in a browser while `gcloud` supplies the active identity token:
+
+```bash
+gcloud auth login
+python3 scripts/private_browser.py
+```
+
+Keep the terminal running and open `http://127.0.0.1:8080/`. The helper listens only on the local machine, proxies requests through `gcloud run services proxy`, and rewrites Nitter's canonical links to the local address. Set `NITTER_BROWSER_PORT` if port 8080 is already in use. Direct visits to the custom domain or a `run.app` URL from a regular browser are expected to return 403 because the browser does not carry the Cloud Run IAM token.
+
+Direct Google sign-in on the service URL can be enabled later with Cloud Run IAP. This GCP project has no Google organization, so IAP requires a custom OAuth client configured in Google Cloud Console before it can accept a personal Gmail allowlist.
 
 ## Requirements
 
@@ -193,7 +213,7 @@ The deployment should:
 4. Grant the default Cloud Run runtime identity read access to those two secrets.
 5. Deploy Nitter and Valkey as one Cloud Run service.
 6. Configure minimum instances `0`, maximum instances `1`, request-based billing/CPU throttling, and modest concurrency.
-7. Keep Cloud Run authenticated unless public access was explicitly requested later.
+7. Keep Cloud Run private, grant the active deploy identity `roles/run.invoker`, and remove broad public invoker bindings.
 
 Cloud Run Compose currently gives each Compose secret the default `/run/secrets` mount directory. Mounting both secrets there is rejected by Cloud Run, so `compose.cloudrun.yaml` uses the session secret only for the initial Compose revision. `deploy.sh` then replaces that transient mount with two stable Secret Manager mounts at `/run/secrets/sessions/nitter_sessions` and `/run/secrets/hmac/nitter_hmac`, disables the temporary bootstrap HMAC, and removes transient Compose-created secrets.
 
@@ -201,13 +221,13 @@ The script should print only non-sensitive metadata such as service, region, URL
 
 ## Test deployment
 
-The initial service is authenticated. Run:
+The service is private. Run:
 
 ```bash
 ./scripts/smoke-test.sh
 ```
 
-The smoke test should verify the Cloud Run service and ready revision, Nitter and Valkey containers, the `:8080` ingress, Secret Manager mounts, min/max instance settings, and request-based billing. It should make only a few authenticated requests, including the homepage and one real profile.
+The smoke test verifies the Cloud Run service and ready revision, Nitter and Valkey containers, the `:8080` ingress, Secret Manager mounts, min/max instance settings, request-based billing, the active identity's invoker binding, anonymous denial on all service URL aliases and mapped domains, and authenticated homepage/profile requests.
 
 For a manual request:
 
@@ -221,7 +241,7 @@ curl --fail --show-error \
   "$SERVICE_URL/"
 ```
 
-After deployment, verify the cold-start path: the service reaches zero instances, Valkey starts, Nitter waits for Valkey, Nitter loads the mounted session, and the first profile request succeeds. A warm request should then work normally.
+After deployment, verify the cold-start path through `scripts/private_browser.py`: the service reaches zero instances, Valkey starts, Nitter waits for Valkey, Nitter loads the mounted session, and the first profile request succeeds. A warm request should then work normally.
 
 ## Refresh X session
 
@@ -253,18 +273,28 @@ For an upgrade:
 
 Do not set `NITTER_REF=master` in production and do not vendor the upstream checkout.
 
-## Make Cloud Run public
+## Roll back access control
 
-Anonymous access is not enabled by default. Only after authenticated deployment and testing are complete should you consider:
+Keep the private browser proxy as the recovery path. If you need to restore anonymous direct access, first decide that exposing every Nitter route (including RSS, media, and profile routes) is acceptable, then run:
 
 ```bash
 gcloud run services add-iam-policy-binding my-nitter \
-  --region europe-west1 \
-  --member="allUsers" \
-  --role="roles/run.invoker"
+  --project=yahatvp-pipeline-eu \
+  --region=europe-west1 \
+  --member=allUsers \
+  --role=roles/run.invoker
 ```
 
-Public access means arbitrary visitors and automated scanners can consume the X account session and its rate limits. Consider an access layer such as Cloudflare Access before exposing a personal instance publicly.
+To return to the private allowlist afterward, remove the broad binding and re-run the deployment script:
+
+```bash
+gcloud run services remove-iam-policy-binding my-nitter \
+  --project=yahatvp-pipeline-eu \
+  --region=europe-west1 \
+  --member=allUsers \
+  --role=roles/run.invoker
+./scripts/deploy.sh
+```
 
 ## Troubleshooting
 

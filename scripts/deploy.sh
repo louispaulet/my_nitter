@@ -54,6 +54,40 @@ COMPOSE_HMAC_SECRET="${CLOUD_RUN_SERVICE}-${GCP_REGION}-nitter-hmac"
 
 ACTIVE_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -n 1 || true)"
 [[ -n "${ACTIVE_ACCOUNT}" ]] || die "gcloud is not authenticated. Run 'gcloud auth login'."
+if [[ "${ACTIVE_ACCOUNT}" == *"gserviceaccount.com" ]]; then
+    INVOKER_MEMBER="serviceAccount:${ACTIVE_ACCOUNT}"
+else
+    INVOKER_MEMBER="user:${ACTIVE_ACCOUNT}"
+fi
+
+ensure_private_access() {
+    if ! gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+        --region="${GCP_REGION}" \
+        --project="${GCP_PROJECT_ID}" \
+        --format='value(status.url)' >/dev/null 2>&1; then
+        return 0
+    fi
+    gcloud run services add-iam-policy-binding "${CLOUD_RUN_SERVICE}" \
+        --region="${GCP_REGION}" \
+        --project="${GCP_PROJECT_ID}" \
+        --member="${INVOKER_MEMBER}" \
+        --role=roles/run.invoker \
+        --quiet >/dev/null
+    for public_member in allUsers allAuthenticatedUsers; do
+        if gcloud run services get-iam-policy "${CLOUD_RUN_SERVICE}" \
+            --region="${GCP_REGION}" \
+            --project="${GCP_PROJECT_ID}" \
+            --format=json | python3 -c 'import json,sys; p=json.load(sys.stdin); m=sys.argv[1]; raise SystemExit(0 if any(b.get("role")=="roles/run.invoker" and m in b.get("members",[]) for b in p.get("bindings",[])) else 1)' "${public_member}"; then
+            gcloud run services remove-iam-policy-binding "${CLOUD_RUN_SERVICE}" \
+                --region="${GCP_REGION}" \
+                --project="${GCP_PROJECT_ID}" \
+                --member="${public_member}" \
+                --role=roles/run.invoker \
+                --all \
+                --quiet >/dev/null
+        fi
+    done
+}
 
 if [[ -z "${GCP_PROJECT_ID}" ]]; then
     GCP_PROJECT_ID="$(gcloud config get-value project 2>/dev/null || true)"
@@ -68,6 +102,9 @@ gcloud config set project "${GCP_PROJECT_ID}" >/dev/null
 gcloud config set run/region "${GCP_REGION}" >/dev/null
 
 "${ROOT_DIR}/scripts/create_session.py" --validate-only
+
+# Establish the deploy operator's allowlist entry before removing public access.
+ensure_private_access
 
 ensure_secret() {
     local secret_name="$1"
@@ -146,6 +183,29 @@ gcloud run services update "${CLOUD_RUN_SERVICE}" \
     --cpu-throttling \
     --concurrency=4 \
     >/dev/null
+
+# Keep the deploy operator on the single-user allowlist and remove broad
+# invoker principals even if an earlier manual change made the service public.
+gcloud run services add-iam-policy-binding "${CLOUD_RUN_SERVICE}" \
+    --region="${GCP_REGION}" \
+    --project="${GCP_PROJECT_ID}" \
+    --member="${INVOKER_MEMBER}" \
+    --role=roles/run.invoker \
+    --quiet >/dev/null
+for public_member in allUsers allAuthenticatedUsers; do
+    if gcloud run services get-iam-policy "${CLOUD_RUN_SERVICE}" \
+        --region="${GCP_REGION}" \
+        --project="${GCP_PROJECT_ID}" \
+        --format=json | python3 -c 'import json,sys; p=json.load(sys.stdin); m=sys.argv[1]; raise SystemExit(0 if any(b.get("role")=="roles/run.invoker" and m in b.get("members",[]) for b in p.get("bindings",[])) else 1)' "${public_member}"; then
+        gcloud run services remove-iam-policy-binding "${CLOUD_RUN_SERVICE}" \
+            --region="${GCP_REGION}" \
+            --project="${GCP_PROJECT_ID}" \
+            --member="${public_member}" \
+            --role=roles/run.invoker \
+            --all \
+            --quiet >/dev/null
+    fi
+done
 
 remove_transient_secret() {
     local secret_name="$1"
