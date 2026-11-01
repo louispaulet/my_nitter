@@ -178,7 +178,7 @@ if any(
     raise SystemExit("ERROR: Cloud Run still grants invoke access to a broad principal.")
 if not any(
     binding.get("role") == "roles/run.invoker"
-    and principal in binding.get("members", [])
+    and any(member.lower() == principal.lower() for member in binding.get("members", []))
     for binding in bindings
 ):
     raise SystemExit("ERROR: active gcloud identity is missing roles/run.invoker.")
