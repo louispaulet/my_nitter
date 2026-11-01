@@ -224,16 +224,30 @@ for host in sorted(host for host in hosts if host):
         raise SystemExit(f"ERROR: anonymous access to a Cloud Run URL returned HTTP {result.stdout}.")
 print("Anonymous access blocked on the service URL aliases")
 PY
-TOKEN="$(gcloud auth print-identity-token)"
-
-curl --fail --silent --show-error --max-time 90 \
-    -H "Authorization: Bearer ${TOKEN}" \
-    "${SERVICE_URL}/" >/dev/null
-
 TEST_PROFILE="${NITTER_TEST_PROFILE:-Jack}"
-curl --fail --silent --show-error --max-time 90 \
-    -H "Authorization: Bearer ${TOKEN}" \
-    "${SERVICE_URL}/${TEST_PROFILE}" >/dev/null
+python3 - "${SERVICE_URL}" "${TEST_PROFILE}" <<'PY'
+import subprocess
+import sys
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+service_url, profile = sys.argv[1:]
+token = subprocess.check_output(["gcloud", "auth", "print-identity-token"], text=True).strip()
+for path in ("/", f"/{profile}"):
+    request = Request(
+        service_url + path,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        with urlopen(request, timeout=90) as response:
+            if response.status != 200:
+                raise SystemExit(f"ERROR: authenticated request returned HTTP {response.status}.")
+            response.read()
+    except HTTPError as error:
+        raise SystemExit(f"ERROR: authenticated request returned HTTP {error.code}.") from None
+    except URLError:
+        raise SystemExit("ERROR: authenticated request could not reach Cloud Run.") from None
+PY
 
 echo "HTTP smoke tests passed"
 echo "Service URL: ${SERVICE_URL}"
